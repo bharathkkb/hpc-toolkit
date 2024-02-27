@@ -299,6 +299,12 @@ class CloudResource(models.Model):
         blank=True,
         null=True,
     )
+    cloud_deployment = models.CharField(
+        max_length=30,
+        help_text="The IM deployment associated with this deployment if any",
+        blank=True,
+        null=True,
+    )
 
     @property
     def project_id(self):

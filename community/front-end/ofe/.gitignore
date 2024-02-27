@@ -1,0 +1,4 @@
+django-env/
+website/static/*
+website/ghpcfe/migrations/*
+.secret_key

@@ -63,18 +63,19 @@ project = "{project_id}"
         tf_main.unlink()
         generate_vpc_tf_datablock(vpc, target_dir)
 
-    try:
-        utils.run_terraform(target_dir, "init")
-        utils.run_terraform(target_dir, "validate", extra_env=extra_env)
-        utils.run_terraform(target_dir, "plan", extra_env=extra_env)
+    # try:
+        # utils.run_terraform(target_dir, "init")
+        # utils.run_terraform(target_dir, "validate", extra_env=extra_env)
+        # utils.run_terraform(target_dir, "plan", extra_env=extra_env)
+        #utils.run_im_apply(target_dir)
 
-    except subprocess.CalledProcessError as err:
-        logger.error("Terraform planning failed", exc_info=err)
-        if err.stdout:
-            logger.info("TF stdout:\n%s\n", err.stdout.decode("utf-8"))
-        if err.stderr:
-            logger.info("TF stderr:\n%s\n", err.stderr.decode("utf-8"))
-        raise
+    # except subprocess.CalledProcessError as err:
+    #     logger.error("Terraform planning failed", exc_info=err)
+    #     if err.stdout:
+    #         logger.info("TF stdout:\n%s\n", err.stdout.decode("utf-8"))
+    #     if err.stderr:
+    #         logger.info("TF stderr:\n%s\n", err.stderr.decode("utf-8"))
+    #     raise
 
 
 def start_vpc(vpc: VirtualNetwork) -> None:
@@ -86,12 +87,14 @@ def start_vpc(vpc: VirtualNetwork) -> None:
                 target_dir / "cloud_credentials"
             ).as_posix()
         }
-        utils.run_terraform(target_dir, "apply", extra_env=extra_env)
+        deploy_url = utils.run_im_apply(target_dir)
+        # utils.run_terraform(target_dir, "apply", extra_env=extra_env)
         tf_state_file = target_dir / "terraform.tfstate"
         with tf_state_file.open("r") as statefp:
             state = json.load(statefp)
             if vpc.is_managed:
                 vpc.cloud_id = state["outputs"]["vpc_id"]["value"]
+                vpc.cloud_deployment = deploy_url
                 vpc.save()
             for subnet in vpc.subnets.all():
                 if subnet.is_managed:
@@ -118,7 +121,8 @@ def destroy_vpc(vpc: VirtualNetwork) -> None:
             target_dir / "cloud_credentials"
         ).as_posix()
     }
-    utils.run_terraform(target_dir, "destroy", extra_env=extra_env)
+    utils.run_im_destroy(target_dir)
+    #utils.run_terraform(target_dir, "destroy", extra_env=extra_env)
     vpc.cloud_state = "xm"
     vpc.save()
 

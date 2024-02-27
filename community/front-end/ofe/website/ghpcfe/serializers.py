@@ -168,6 +168,7 @@ class VirtualNetworkSerializer(serializers.ModelSerializer):
             "cloud_region",
             "cloud_state",
             "subnets",
+            "cloud_deployment",
         )
 
 

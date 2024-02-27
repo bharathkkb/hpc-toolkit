@@ -89,9 +89,9 @@ class VPCDetailView(SuperUserRequiredMixin, generic.DetailView):
         used_in_filesystems = []
         used_in_workbenches = []
 
-        for c in Cluster.objects.exclude(status="d"):
-            if vpc == c.subnet.vpc:
-                used_in_clusters.append(c)
+        # for c in Cluster.objects.exclude(status="d"):
+            # if vpc == c.subnet.vpc:
+            #     used_in_clusters.append(c)
 
         for fs in Filesystem.objects.exclude(cloud_state__in=["cm", "m", "dm"]):
             if vpc == fs.vpc:

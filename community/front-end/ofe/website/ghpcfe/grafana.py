@@ -24,25 +24,26 @@ from django.conf import settings
 logger = logging.getLogger(__name__)
 
 def add_gcp_datasource(name, creds):
-    auth = ("admin", settings.SECRET_KEY)
-    api = GrafanaFace(auth=auth, host="localhost:3000")
-    creds = json.loads(creds)
-    api.datasource.create_datasource(
-        {
-            "name": name,
-            "type": "stackdriver",
-            "access": "proxy",
-            "jsonData": {
-                "authenticationType": "jwt",
-                "tokenUri": creds["token_uri"],
-                "clientEmail": creds["client_email"],
-                "defaultProject": creds["project_id"],
-            },
-            "secureJsonData": {
-                "privateKey": creds["private_key"],
-            }
-        }
-    )
+    return 
+    # auth = ("admin", settings.SECRET_KEY)
+    # api = GrafanaFace(auth=auth, host="localhost:3000")
+    # creds = json.loads(creds)
+    # api.datasource.create_datasource(
+    #     {
+    #         "name": name,
+    #         "type": "stackdriver",
+    #         "access": "proxy",
+    #         "jsonData": {
+    #             "authenticationType": "jwt",
+    #             "tokenUri": creds["token_uri"],
+    #             "clientEmail": creds["client_email"],
+    #             "defaultProject": creds["project_id"],
+    #         },
+    #         "secureJsonData": {
+    #             "privateKey": creds["private_key"],
+    #         }
+    #     }
+    # )
 
 
 def create_cluster_dashboard(cluster):

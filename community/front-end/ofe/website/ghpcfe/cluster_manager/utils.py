@@ -23,6 +23,11 @@ from pathlib import Path
 import shutil
 
 import yaml
+from google.cloud import config_v1
+from google.cloud.storage import Client, transfer_manager
+import random
+import string
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -190,6 +195,146 @@ def rsync_dir(
                 log_err.write(cpe.stderr)
         raise
 
+
+def create_deployment(client, name, gcs_source, project, sa):
+    try:
+        deployment = config_v1.Deployment()
+        deployment.terraform_blueprint.gcs_source = "gs://" + gcs_source
+        deployment.service_account = f"projects/{project}/serviceAccounts/{sa}"
+        #TODO: Add labels
+        print(deployment)
+        request = config_v1.CreateDeploymentRequest(
+            parent=f"projects/{project}/locations/us-central1",
+            deployment_id=name,
+            deployment=deployment,
+        )
+        operation = client.create_deployment(request=request)
+        print(operation)
+        print("Waiting for deployment create operation to complete...")
+        response = operation.result()
+        print(response)
+    except Exception as error:
+        print("An exception occurred during deployment:", error)
+
+
+# https://github.com/googleapis/python-storage/blob/main/samples/snippets/storage_transfer_manager_upload_directory.py
+def upload_to_gcs(bucket_name, source_directory, workers=8):
+    storage_client = Client()
+    bucket = storage_client.bucket(bucket_name)
+
+    directory_as_path_obj = Path(source_directory)
+    dir_suffix = ''.join(random.choices(string.ascii_lowercase, k=5))
+    gcs_prefix= f"{directory_as_path_obj.name}-{dir_suffix}"
+    paths = directory_as_path_obj.rglob("*")
+
+    # Filter so the list only includes files, not directories themselves.
+    file_paths = [path for path in paths if path.is_file()]
+
+    # These paths are relative to the current working directory. Next, make them
+    # relative to `directory`
+    relative_paths = [path.relative_to(source_directory) for path in file_paths]
+    # Finally, convert them all to strings.
+    string_paths = [str(path) for path in relative_paths]
+
+    print("Found {} files.".format(len(string_paths)))
+
+    # Start the upload.
+    results = transfer_manager.upload_many_from_filenames(
+        bucket, string_paths, source_directory=source_directory, blob_name_prefix=gcs_prefix+"/", max_workers=workers
+    )
+
+    result_gcs = os.path.join(bucket.name,gcs_prefix)
+    for name, result in zip(string_paths, results):
+        # The results list is either `None` or an exception for each filename in
+        # the input list, in order.
+
+        if isinstance(result, Exception):
+            print("Failed to upload {} due to exception: {}".format(name, result))
+        else:
+            print("Uploaded {} to {}.".format(name, result_gcs))
+    return result_gcs
+
+def lock_deployment(client, name, project):
+    request = config_v1.LockDeploymentRequest(
+        name=f"projects/{project}/locations/us-central1/deployments/{name}",
+    )
+    operation = client.lock_deployment(request=request)
+    print("Waiting for lock operation to complete...")
+    response = operation.result()
+    print(response)
+
+def export_lock_info(client, name, project):
+    request = config_v1.ExportLockInfoRequest(
+        name=f"projects/{project}/locations/us-central1/deployments/{name}",
+    )
+    response = client.export_lock_info(request=request)
+    print(response)
+    return response.lock_id
+
+def unlock_deployment(client,name,project,lock_id):
+    request = config_v1.UnlockDeploymentRequest(
+        name=f"projects/{project}/locations/us-central1/deployments/{name}",
+        lock_id=lock_id,
+    )
+    operation = client.unlock_deployment(request=request)
+    print("Waiting for unlock operation to complete...")
+    response = operation.result()
+    print(response)
+
+
+def export_deployment_statefile(client,name,project, dir):
+    request = config_v1.ExportDeploymentStatefileRequest(
+        parent=f"projects/{project}/locations/us-central1/deployments/{name}",
+    )
+    response = client.export_deployment_statefile(request=request)
+    print(response)
+    resp = requests.get(response.signed_uri)
+    pth = os.path.join(dir,"terraform.tfstate")
+    with open(pth, "wb") as f:
+        f.write(resp.content)
+
+def delete_deployment(client, name, project):
+    request = config_v1.DeleteDeploymentRequest(
+        name=f"projects/{project}/locations/us-central1/deployments/{name}",
+        force=True,
+    )
+    operation = client.delete_deployment(request=request)
+    print("Waiting for deployment delete operation to complete...")
+    response = operation.result()
+    print(response)
+
+
+#TODO: Pass these from OFE context.
+project = "PROJECT_ID"
+sa = "BYOSA"
+bucket = "GCS_STAGING_BUCKET"
+
+# run_im_destroy destroys a deployment.
+# target_dir basename is used as deployment name.
+def run_im_destroy(target_dir):
+    logger.info(f"run_im_destroy using dir {target_dir}")
+    depl_name = os.path.basename(target_dir).replace("_","-")
+    logger.info(f"using deployment name ${depl_name}")
+    client = config_v1.ConfigClient()
+    delete_deployment(client,depl_name,project)
+
+# run_im_apply creates a deployment using target_dir basename as deployment name.
+# Files in target dir are staged in a bucket.
+# After creation, it also downloads statefile to target_dir for OFE processing.
+# TODO: Switch to using revision TF outputs if only outputs are required.
+def run_im_apply(target_dir):
+    logger.info(f"run_im_apply using dir {target_dir}")
+    depl_name = os.path.basename(target_dir).replace("_","-")
+    logger.info(f"using deployment name ${depl_name}")
+    gcs_source = upload_to_gcs(bucket, target_dir)
+    client = config_v1.ConfigClient()
+    create_deployment(client,depl_name,gcs_source,project,sa)
+    lock_deployment(client,depl_name,project)
+    lock_id=export_lock_info(client,depl_name,project)
+    export_deployment_statefile(client,depl_name,project,target_dir)
+    unlock_deployment(client,depl_name,project,lock_id)
+    depl_url = f"https://console.google.com/products/solutions/deployments/details/us-central1/{depl_name}?project={project}"
+    return depl_url
 
 def run_terraform(target_dir, command, arguments=None, extra_env=None):
 
